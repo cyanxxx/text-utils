@@ -9,6 +9,7 @@
 // @icon         data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==
 // @grant        none
 // ==/UserScript==
+
 const excludeTagNames = [
   'script', 'style', 'xmp',
   'input', 'textarea', 'select',
@@ -29,6 +30,7 @@ function utils() {
     gather(body) {
       function map(node, arr) {
         if (!node) return
+        if(node.hasReplace)return
         if (node.childNodes.length > 0) {
           node.childNodes.forEach(c => {
             if (excludeTagNames.includes(node.tagName)) return;
@@ -68,35 +70,49 @@ function utils() {
     },
     blodCaseRest() {
       const nodeList = document.querySelectorAll(`.${mode}Text`)
-      nodeList.forEach(el => {
-        const cache = nodeMap.get(el)
-        el.innerHTML = cache.text || ""
-      })
+      if(nodeList) {
+        this.transformNode(nodeList, (el) => {
+          const cache = nodeMap.get(el)
+          if (!cache) return
+          el.innerHTML = cache.text || ""
+        })
+      }
     },
     upperCaseRest() {
       const nodeList = this.gather(body);
-      nodeList.forEach(el => {
+      this.transformNode(nodeList, (el) => {
         const cache = nodeMap.get(el)
         if (!cache) return
         el.textContent = cache.text || ""
       })
+    },
+    transformNode(nodeList, cb) {
+      nodeList.forEach((el) => {
+        this.cancelTagNode(el)
+        cb(el)
+      })
+    },
+    cancelTagNode(el) {
+      el.hasReplace = false
     }
   }
 }
 
 function toggle(controller, e) {
   const target = e.currentTarget
+  const btnText = target.childNodes[0]
+  const switchIcon = target.childNodes[1]
 
   if (!target.getAttribute(mode)) {
     controller[mode]()
     target.setAttribute(mode, 'true')
-    target.childNodes[0].textContent = 'cancel'
-    target.childNodes[1].style.display = 'none'
+    btnText.textContent = 'cancel'
+    switchIcon.style.display = 'none'
   } else {
     controller.reset()
     target.setAttribute(mode, '')
-    target.childNodes[0].textContent = `transform to ${mode}`
-    target.childNodes[1].style.display = 'inline'
+    btnText.textContent = `transform to ${mode}`
+    switchIcon.style.display = 'inline-flex'
   }
 }
 
@@ -120,6 +136,7 @@ function blodCase(nodeMap, el) {
     } else {
       halfLength = Math.ceil(word.length / 2);
     }
+    spanEl.hasReplace = true
     return '<strong>' + word.substr(0, halfLength) + '</strong>' + word.substr(halfLength)
   })
   el.after(spanEl);
@@ -128,13 +145,17 @@ function blodCase(nodeMap, el) {
 }
 
 function upperCase(nodeMap, node) {
-  if (nodeMap.has(node)) {
-    return nodeMap.get(node).upperCaseText
+  let upperCaseText;
+  if (!nodeMap.has(node)) {
+    text = node.textContent
+    upperCaseText = text.replace(/\b([a-z])(\w*)/g, (match, p1, p2) => p1.toUpperCase() + p2)
+    nodeMap.set(node, { text, upperCaseText })
+  }else{
+    upperCaseText = nodeMap.get(node).upperCaseText
   }
-  const text = node.textContent
-  const upperCaseText = text.replace(/\b([a-z])(\w*)/g, (match, p1, p2) => p1.toUpperCase() + p2)
   node.textContent = upperCaseText
-  nodeMap.set(node, { text, upperCaseText })
+  node.hasReplace = true
+  
 }
 
 function ui() {
@@ -159,8 +180,7 @@ function ui() {
     font-size: 16px;
   `
   switchSpan.style.cssText = `
-    width: 1em;
-    height: 1em;
+    display: inline-flex;
     margin-left: 3px;
   `
   content.style.cssText = `
@@ -184,7 +204,7 @@ function ui() {
     --border-color: #48D1CC;
     `
   const controller = utils(mode)
-  btn.addEventListener('click', toggle.bind(btn, controller))
+  btn.addEventListener('click', toggle(controller, e))
   content.appendChild(btn)
   content.appendChild(span)
   btn.appendChild(switchSpan)
@@ -213,6 +233,30 @@ function ui() {
     btn.style.display = 'none'
   })
   body.appendChild(container)
+
+  function autoRun() {
+    if (btn.getAttribute(mode)) {
+      controller[mode]()
+    } else {
+      controller.reset()
+    }
+  }
+  const config = {
+    childList: true,
+    subtree: true,
+  }
+  const delayAutoRun = lazy(autoRun)
+  new MutationObserver((e) => {
+    if (e.some(el => el.target.className.includes(`${mode}Text`)))return
+    delayAutoRun()
+  }).observe(body, config)
 }
+
+const lazy = (func, ms = 15) => {
+  return _ => {
+    clearTimeout(func.T)
+    func.T = setTimeout(func, ms)
+  }
+};
 
 ui()
